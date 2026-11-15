@@ -1,0 +1,10 @@
+{
+  "name": "Go-WASM Termux",
+  "short_name": "GoTermux",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d1117",
+  "theme_color": "#0d1117",
+  "description": "Serverless Go WebAssembly Linux Shell for Android"
+}
