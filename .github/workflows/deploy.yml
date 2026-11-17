@@ -1,0 +1,39 @@
+name: Build Go-WASM
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Compile Go to WebAssembly
+        run: |
+          mkdir -p public
+          GOOS=js GOARCH=wasm go mod tidy
+          GOROOT_PATH=$(go env GOROOT)
+          if [ -f "$GOROOT_PATH/misc/wasm/wasm_exec.js" ]; then
+            cp "$GOROOT_PATH/misc/wasm/wasm_exec.js" public/wasm_exec.js
+          else
+            cp "$GOROOT_PATH/lib/wasm/wasm_exec.js" public/wasm_exec.js
+          fi
+          GOOS=js GOARCH=wasm go build -ldflags="-s -w" -o public/main.wasm main.go
+
+      - name: Upload Ready Web App
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-wasm-termux-public
+          path: public/
