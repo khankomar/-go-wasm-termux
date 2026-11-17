@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content" />
+  <meta name="theme-color" content="#0d1117" />
+  <title>WASM-Termux (Alpine Linux v86)</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Xterm.js & Addons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-webgl@0.16.0/lib/xterm-addon-webgl.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.min.js"></script>
+
+  <!-- v86 x86-to-WASM Emulator Engine -->
+  <script src="https://copy.sh/v86/build/libv86.js"></script>
+</head>
+<body>
+
+<div id="app-shell">
+  <!-- Top Status & Action Bar -->
+  <header class="flex items-center justify-between px-2.5 py-1.5 bg-[#161b22] border-b border-[#30363d] text-xs select-none">
+    <div class="flex items-center gap-2">
+      <button id="btn-open-drawer" class="px-2 py-1 bg-[#21262d] hover:bg-[#30363d] text-emerald-400 font-bold rounded border border-[#30363d]">
+        ☰ System & Files
+      </button>
+      <span id="vm-status-badge" class="flex items-center gap-1.5 text-amber-400 font-medium">
+        <span id="vm-status-dot" class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+        <span id="vm-status-text">Booting Kernel...</span>
+      </span>
+    </div>
+
+    <div class="flex items-center gap-1.5">
+      <button id="btn-quick-save" class="px-2 py-1 bg-blue-600/20 text-blue-400 border border-blue-500/40 rounded font-semibold" title="Save RAM Snapshot to IndexedDB">
+        💾 Save State
+      </button>
+      <button id="btn-ctrl-c" class="px-2 py-1 bg-red-600/20 text-red-400 border border-red-500/40 rounded font-semibold">
+        ^C
+      </button>
+    </div>
+  </header>
+
+  <!-- Hidden v86 dummy screen container (we use ttyS0 serial port on xterm.js instead) -->
+  <div id="v86-screen-hidden" style="display: none;">
+    <div></div>
+    <canvas></canvas>
+  </div>
+
+  <!-- Main Xterm.js Serial Console -->
+  <main id="terminal-container"></main>
+
+  <!-- Termux Dual-Row Extra Keys Touch Bar -->
+  <nav id="extra-keys-bar" class="bg-[#0d1117] border-t border-[#30363d] p-1 select-none">
+    <div class="grid grid-cols-7 gap-1 mb-1">
+      <button class="extra-key" data-key="ESC">ESC</button>
+      <button class="extra-key" data-key="/">/</button>
+      <button class="extra-key" data-key="-">-</button>
+      <button class="extra-key" data-key="HOME">HOME</button>
+      <button class="extra-key" data-key="UP">▲</button>
+      <button class="extra-key" data-key="END">END</button>
+      <button class="extra-key" data-key="PGUP">PGUP</button>
+    </div>
+    <div class="grid grid-cols-7 gap-1">
+      <button class="extra-key" data-key="TAB">TAB</button>
+      <button class="extra-key" id="key-ctrl" data-key="CTRL">CTRL</button>
+      <button class="extra-key" id="key-alt" data-key="ALT">ALT</button>
+      <button class="extra-key" data-key="LEFT">◀</button>
+      <button class="extra-key" data-key="DOWN">▼</button>
+      <button class="extra-key" data-key="RIGHT">▶</button>
+      <button class="extra-key" data-key="PGDN">PGDN</button>
+    </div>
+  </nav>
+</div>
+
+<!-- Slide-out System, Snapshot & 9p File Bridge Drawer -->
+<aside id="system-drawer" class="fixed inset-0 bg-black/75 z-50 hidden">
+  <div class="w-80 max-w-[88vw] h-full bg-[#161b22] border-r border-[#30363d] flex flex-col p-4 overflow-y-auto space-y-4 text-xs">
+    <div class="flex items-center justify-between pb-2 border-b border-[#30363d]">
+      <h2 class="text-sm font-bold text-emerald-400">WASM-Termux Control Center</h2>
+      <button id="btn-close-drawer" class="text-gray-400 text-base font-bold px-2">✕</button>
+    </div>
+
+    <!-- Section 1: Persistent VM Snapshots (IndexedDB) -->
+    <section class="space-y-2 bg-[#0d1117] p-3 rounded border border-[#30363d]">
+      <div class="font-bold text-gray-200 flex justify-between">
+        <span>1. Persistent State (IndexedDB)</span>
+        <span id="snapshot-info" class="text-emerald-400">Checking...</span>
+      </div>
+      <p class="text-gray-400 leading-relaxed">
+        Freeze the entire Linux RAM & filesystem into browser storage for instant 1-second boot next time.
+      </p>
+      <div class="grid grid-cols-2 gap-2 pt-1">
+        <button id="btn-save-state" class="py-2 bg-emerald-600 text-white font-bold rounded">Save Snapshot</button>
+        <button id="btn-restore-state" class="py-2 bg-blue-600 text-white font-bold rounded">Restore Snapshot</button>
+        <button id="btn-export-state" class="py-2 bg-[#21262d] border border-[#30363d] text-gray-200 font-bold rounded">Export .bin</button>
+        <button id="btn-clear-state" class="py-2 bg-red-900/50 border border-red-600/40 text-red-300 font-bold rounded">Cold Reboot</button>
+      </div>
+    </section>
+
+    <!-- Section 2: Host-to-VM 9p File Bridge -->
+    <section class="space-y-2 bg-[#0d1117] p-3 rounded border border-[#30363d]">
+      <div class="font-bold text-gray-200">2. Android ⇄ Linux 9p File Bridge</div>
+      <label class="block w-full text-center py-2 bg-indigo-600 text-white font-bold rounded cursor-pointer">
+        📤 Inject File into /root/
+        <input type="file" id="input-upload-9p" class="hidden" />
+      </label>
+      <div class="flex gap-1.5 pt-1">
+        <input type="text" id="input-extract-path" placeholder="/root/main.py" value="/root/script.sh" class="flex-1 bg-[#161b22] border border-[#30363d] rounded px-2 py-1.5 text-gray-100" />
+        <button id="btn-extract-9p" class="px-3 py-1.5 bg-purple-600 text-white font-bold rounded">Download</button>
+      </div>
+    </section>
+
+    <!-- Section 3: Virtual Network Proxy Relay -->
+    <section class="space-y-2 bg-[#0d1117] p-3 rounded border border-[#30363d]">
+      <div class="font-bold text-gray-200">3. WebSocket Network Relay (virtio-net)</div>
+      <p class="text-gray-400">Used by Linux for <code class="text-amber-300">apk add</code>, <code class="text-amber-300">curl</code>, and <code class="text-amber-300">git</code> over mobile data.</p>
+      <input type="text" id="input-relay-url" value="wss://relay.widgetry.org/" class="w-full bg-[#161b22] border border-[#30363d] rounded px-2 py-1.5 text-gray-100" />
+      <button id="btn-apply-relay" class="w-full py-1.5 bg-[#21262d] border border-[#30363d] text-emerald-400 font-bold rounded">
+        Save Relay & Restart VM
+      </button>
+    </section>
+
+    <!-- Section 4: Clipboard & Touch Helpers -->
+    <section class="space-y-2 bg-[#0d1117] p-3 rounded border border-[#30363d]">
+      <div class="font-bold text-gray-200">4. Quick Clipboard Paste</div>
+      <div class="flex gap-1.5">
+        <input type="text" id="input-paste-box" placeholder="Paste command here..." class="flex-1 bg-[#161b22] border border-[#30363d] rounded px-2 py-1.5 text-gray-100" />
+        <button id="btn-send-paste" class="px-3 py-1.5 bg-emerald-600 text-white font-bold rounded">Send</button>
+      </div>
+    </section>
+  </div>
+</aside>
+
+<script type="module" src="storage.js"></script>
+<script type="module" src="vm-manager.js"></script>
+<script type="module" src="mobile-ui.js"></script>
+</body>
+</html>
